@@ -5,6 +5,16 @@ Two blueprints:
 - `blueprints/script/central_notifier.yaml`: the single notification script that every automation calls
 - `blueprints/automation/alarmo_to_notifier.yaml`: sends Alarmo events through that script
 
+## One-click import
+[![Import Central Notifier](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FBanham22%2Fha-central-notifier%2Fblob%2Fmain%2Fblueprints%2Fscript%2Fcentral_notifier.yaml)
+[![Import Alarmo link](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FBanham22%2Fha-central-notifier%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Falarmo_to_notifier.yaml)
+
+Or in HA: **Settings → Automations & scenes → Blueprints → Import blueprint** and paste:
+- `https://github.com/Banham22/ha-central-notifier/blob/main/blueprints/script/central_notifier.yaml`
+- `https://github.com/Banham22/ha-central-notifier/blob/main/blueprints/automation/alarmo_to_notifier.yaml`
+
+To update later, use **Re-import blueprint** from the blueprint's menu.
+
 ## Requirements
 - Home Assistant 2024.10 or later
 - HA Companion app on each phone (iOS and Android both work)
@@ -66,9 +76,10 @@ To send and carry on without waiting, use `script.turn_on` with `variables:` ins
 - `acknowledge`
 - `snooze`
 - `disarm`
+- `silence` (the Silence button was pressed)
 - `timeout`
 - `escalated`
-- `silenced`
+- `silenced` (silent mode was on)
 - `cooldown`
 
 ## How it behaves

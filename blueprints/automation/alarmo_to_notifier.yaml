@@ -6,6 +6,7 @@ blueprint:
     Turn OFF Alarmo's own notifications so this is the only path.
   domain: automation
   author: Andrew
+  source_url: https://github.com/Banham22/ha-central-notifier/blob/main/blueprints/automation/alarmo_to_notifier.yaml
   homeassistant:
     min_version: 2024.10.0
   input:
@@ -16,6 +17,12 @@ blueprint:
           filter:
             - integration: alarmo
               domain: alarm_control_panel
+    area_label:
+      name: Area name (optional)
+      description: Shown at the start of every title, e.g. "Garage". Defaults to the panel's name.
+      default: ""
+      selector:
+        text: {}
     notifier:
       name: Central Notifier script
       selector:
@@ -122,6 +129,7 @@ max: 10
 variables:
   panel: !input alarm_panel
   notifier: !input notifier
+  area_label_in: !input area_label
   events: !input events
   sev_map:
     triggered: !input sev_triggered
@@ -169,9 +177,14 @@ triggers:
 conditions:
   - condition: template
     value_template: "{{ trigger.id in events }}"
+  # failed_to_arm is a global event: only handle it for this panel
+  - condition: template
+    value_template: >-
+      {{ trigger.id != 'failed_to_arm' or trigger.event.data.get('entity_id', panel) == panel }}
 
 actions:
   - variables:
+      area: "{{ area_label_in | default('', true) or state_attr(panel, 'friendly_name') or 'Alarm' }}"
       sensors: >-
         {%- if trigger.id == 'failed_to_arm' -%}
           {%- set s = trigger.event.data.sensors | default([]) -%}
@@ -183,12 +196,12 @@ actions:
       who: "{{ state_attr(panel, 'changed_by') or 'someone' }}"
       arm_mode: "{{ (state_attr(panel, 'arm_mode') or (states(panel) if trigger.id == 'armed' else '')) | replace('armed_', '') | replace('_', ' ') }}"
       title_map:
-        triggered: Alarm triggered
-        pending: Entry delay
-        arming: Alarm arming
-        armed: Alarm armed
-        disarmed: Alarm disarmed
-        failed_to_arm: Alarm failed to arm
+        triggered: triggered
+        pending: entry delay
+        arming: arming
+        armed: armed
+        disarmed: disarmed
+        failed_to_arm: failed to arm
       message: >-
         {%- set id = trigger.id -%}
         {%- if id == 'triggered' -%}Triggered by {{ sensors or 'unknown sensor' }}
@@ -209,12 +222,13 @@ actions:
       entity_id: "{{ notifier }}"
     data:
       variables:
-        title: "{{ title_map[trigger.id] }}"
+        title: "{{ area }}: {{ title_map[trigger.id] }}"
         message: "{{ message }}"
         severity: "{{ sev_map[trigger.id] }}"
         channel: security
         confirm: "{{ confirm }}"
         escalate_after: "{{ escalate }}"
-        tag: alarmo
+        tag: "alarmo_{{ panel.split('.')[1] }}"
+        alarm_entity: "{{ panel }}"
         image: "{{ image }}"
         link: "{{ dashboard_link }}"

@@ -1,0 +1,220 @@
+blueprint:
+  name: Alarmo -> Central Notifier
+  description: >-
+    Sends Alarmo events through the Central Notifier script. Pick which events
+    notify, their severity, and the buttons for triggered/entry delay.
+    Turn OFF Alarmo's own notifications so this is the only path.
+  domain: automation
+  author: Andrew
+  homeassistant:
+    min_version: 2024.10.0
+  input:
+    alarm_panel:
+      name: Alarmo panel
+      selector:
+        entity:
+          filter:
+            - integration: alarmo
+              domain: alarm_control_panel
+    notifier:
+      name: Central Notifier script
+      selector:
+        entity:
+          filter:
+            - domain: script
+    events:
+      name: Notify on
+      default: [triggered, pending, failed_to_arm]
+      selector:
+        select:
+          multiple: true
+          options:
+            - label: Triggered
+              value: triggered
+            - label: Entry delay (pending)
+              value: pending
+            - label: Arming (exit delay)
+              value: arming
+            - label: Armed
+              value: armed
+            - label: Disarmed
+              value: disarmed
+            - label: Failed to arm
+              value: failed_to_arm
+    severities:
+      name: Severities
+      icon: mdi:alert
+      collapsed: true
+      input:
+        sev_triggered:
+          name: Triggered
+          default: critical
+          selector: &sev
+            select:
+              options: [info, warning, critical]
+        sev_pending:
+          name: Entry delay
+          default: warning
+          selector: *sev
+        sev_arming:
+          name: Arming
+          default: info
+          selector: *sev
+        sev_armed:
+          name: Armed
+          default: info
+          selector: *sev
+        sev_disarmed:
+          name: Disarmed
+          default: info
+          selector: *sev
+        sev_failed:
+          name: Failed to arm
+          default: warning
+          selector: *sev
+    buttons:
+      name: Buttons and escalation
+      icon: mdi:gesture-tap-button
+      collapsed: true
+      input:
+        triggered_confirm:
+          name: Triggered buttons
+          default: disarm
+          selector: &cf
+            select:
+              options:
+                - label: None
+                  value: none
+                - label: Acknowledge
+                  value: acknowledge
+                - label: Acknowledge + disarm
+                  value: disarm
+        triggered_escalate:
+          name: Triggered - escalate if unanswered after (minutes, 0 = never)
+          default: 2
+          selector:
+            number: {min: 0, max: 60, unit_of_measurement: min}
+        pending_confirm:
+          name: Entry delay buttons
+          default: disarm
+          selector: *cf
+    extras:
+      name: Extras
+      icon: mdi:camera
+      collapsed: true
+      input:
+        camera:
+          name: Camera snapshot for triggered / entry delay (optional)
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: camera
+        dashboard_link:
+          name: Open on tap (optional)
+          default: ""
+          selector:
+            text: {}
+
+mode: queued
+max: 10
+
+variables:
+  panel: !input alarm_panel
+  notifier: !input notifier
+  events: !input events
+  sev_map:
+    triggered: !input sev_triggered
+    pending: !input sev_pending
+    arming: !input sev_arming
+    armed: !input sev_armed
+    disarmed: !input sev_disarmed
+    failed_to_arm: !input sev_failed
+  triggered_confirm: !input triggered_confirm
+  triggered_escalate: !input triggered_escalate
+  pending_confirm: !input pending_confirm
+  camera: !input camera
+  dashboard_link: !input dashboard_link
+
+triggers:
+  - trigger: state
+    entity_id: !input alarm_panel
+    to: triggered
+    not_from: [unavailable, unknown]
+    id: triggered
+  - trigger: state
+    entity_id: !input alarm_panel
+    to: pending
+    not_from: [unavailable, unknown]
+    id: pending
+  - trigger: state
+    entity_id: !input alarm_panel
+    to: arming
+    not_from: [unavailable, unknown]
+    id: arming
+  - trigger: state
+    entity_id: !input alarm_panel
+    to: [armed_away, armed_home, armed_night, armed_vacation, armed_custom_bypass]
+    not_from: [unavailable, unknown]
+    id: armed
+  - trigger: state
+    entity_id: !input alarm_panel
+    to: disarmed
+    not_from: [unavailable, unknown]
+    id: disarmed
+  - trigger: event
+    event_type: alarmo_failed_to_arm
+    id: failed_to_arm
+
+conditions:
+  - condition: template
+    value_template: "{{ trigger.id in events }}"
+
+actions:
+  - variables:
+      sensors: >-
+        {%- if trigger.id == 'failed_to_arm' -%}
+          {%- set s = trigger.event.data.sensors | default([]) -%}
+        {%- else -%}
+          {%- set s = state_attr(panel, 'open_sensors') or {} -%}
+        {%- endif -%}
+        {%- set ids = (s.keys() | list) if s is mapping else s -%}
+        {{ ids | map('state_attr', 'friendly_name') | reject('none') | join(', ') }}
+      who: "{{ state_attr(panel, 'changed_by') or 'someone' }}"
+      arm_mode: "{{ (state_attr(panel, 'arm_mode') or (states(panel) if trigger.id == 'armed' else '')) | replace('armed_', '') | replace('_', ' ') }}"
+      title_map:
+        triggered: Alarm triggered
+        pending: Entry delay
+        arming: Alarm arming
+        armed: Alarm armed
+        disarmed: Alarm disarmed
+        failed_to_arm: Alarm failed to arm
+      message: >-
+        {%- set id = trigger.id -%}
+        {%- if id == 'triggered' -%}Triggered by {{ sensors or 'unknown sensor' }}
+        {%- elif id == 'pending' -%}Entry delay started: {{ sensors or 'unknown sensor' }}. Disarm now.
+        {%- elif id == 'arming' -%}Arming {{ arm_mode }} - exit now.
+        {%- elif id == 'armed' -%}Armed {{ arm_mode }} by {{ who }}.
+        {%- elif id == 'disarmed' -%}Disarmed by {{ who }}.
+        {%- else -%}Could not arm. Open: {{ sensors or 'check sensors' }}.
+        {%- endif -%}
+      confirm: >-
+        {{ triggered_confirm if trigger.id == 'triggered' else (pending_confirm if trigger.id == 'pending' else 'none') }}
+      escalate: "{{ triggered_escalate | int(0) if trigger.id == 'triggered' else 0 }}"
+      image: >-
+        {{ ('/api/camera_proxy/' ~ camera) if (camera | default('', true) | length > 0 and trigger.id in ['triggered', 'pending']) else '' }}
+
+  - action: script.turn_on
+    target:
+      entity_id: "{{ notifier }}"
+    data:
+      variables:
+        title: "{{ title_map[trigger.id] }}"
+        message: "{{ message }}"
+        severity: "{{ sev_map[trigger.id] }}"
+        channel: security
+        confirm: "{{ confirm }}"
+        escalate_after: "{{ escalate }}"
+        tag: alarmo
+        image: "{{ image }}"
+        link: "{{ dashboard_link }}"

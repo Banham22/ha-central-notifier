@@ -1,0 +1,840 @@
+blueprint:
+  name: Central Notifier
+  description: >-
+    One script for every notification in the house. Automations call it with a
+    severity, channel and message. This blueprint decides who gets it, how loud,
+    whether it speaks on speakers, and handles confirm buttons, snooze and
+    escalation. Edit everything here in the UI - never in the automations.
+  domain: script
+  author: Andrew
+  homeassistant:
+    min_version: 2024.10.0
+  input:
+    phones_section:
+      name: Phones
+      icon: mdi:cellphone
+      description: Which phones get each severity. Critical always goes to the critical phones.
+      input:
+        info_phones:
+          name: Info phones
+          default: []
+          selector:
+            device:
+              multiple: true
+              filter:
+                - integration: mobile_app
+        warning_phones:
+          name: Warning phones
+          default: []
+          selector:
+            device:
+              multiple: true
+              filter:
+                - integration: mobile_app
+        critical_phones:
+          name: Critical phones
+          default: []
+          selector:
+            device:
+              multiple: true
+              filter:
+                - integration: mobile_app
+        presence_filter:
+          name: Only send to phones that are home
+          description: For these severities, only phones whose tracker is 'home' get it. If nobody is home, everyone in the list gets it.
+          default:
+            - info
+          selector:
+            select:
+              multiple: true
+              options:
+                - label: Info
+                  value: info
+                - label: Warning
+                  value: warning
+
+    channels_section:
+      name: Channel overrides (optional)
+      icon: mdi:call-split
+      collapsed: true
+      description: If a channel has phones set, they replace the severity list for that channel. Leave empty to use the severity lists.
+      input:
+        security_phones:
+          name: Security channel phones
+          default: []
+          selector:
+            device:
+              multiple: true
+              filter:
+                - integration: mobile_app
+        house_phones:
+          name: House channel phones
+          default: []
+          selector:
+            device:
+              multiple: true
+              filter:
+                - integration: mobile_app
+        energy_phones:
+          name: Energy channel phones
+          default: []
+          selector:
+            device:
+              multiple: true
+              filter:
+                - integration: mobile_app
+        system_phones:
+          name: System channel phones
+          default: []
+          selector:
+            device:
+              multiple: true
+              filter:
+                - integration: mobile_app
+
+    speakers_section:
+      name: Speakers
+      icon: mdi:speaker-wireless
+      collapsed: true
+      input:
+        speaker_method:
+          name: Speaker method
+          default: alexa_announce
+          selector:
+            select:
+              options:
+                - label: Alexa announce (chime first) - Alexa Media Player
+                  value: alexa_announce
+                - label: Alexa TTS (no chime) - Alexa Media Player
+                  value: alexa_tts
+                - label: HA TTS (Sonos, Google, etc.)
+                  value: tts_speak
+        tts_engine:
+          name: TTS engine (only for HA TTS method)
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: tts
+        info_speakers:
+          name: Info speakers
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: media_player
+        warning_speakers:
+          name: Warning speakers
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: media_player
+        critical_speakers:
+          name: Critical speakers
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: media_player
+        info_volume:
+          name: Info volume
+          default: 0.3
+          selector:
+            number: {min: 0, max: 1, step: 0.05, mode: slider}
+        warning_volume:
+          name: Warning volume
+          default: 0.5
+          selector:
+            number: {min: 0, max: 1, step: 0.05, mode: slider}
+        critical_volume:
+          name: Critical volume
+          default: 0.9
+          selector:
+            number: {min: 0, max: 1, step: 0.05, mode: slider}
+        fallback_volume:
+          name: Restore volume fallback
+          description: Used when a speaker's previous volume is unknown.
+          default: 0.3
+          selector:
+            number: {min: 0, max: 1, step: 0.05, mode: slider}
+        alexa_dnd_override:
+          name: Critical overrides Alexa Do Not Disturb
+          default: true
+          selector:
+            boolean: {}
+        seconds_per_word:
+          name: Seconds per word (speech wait before volume restore)
+          default: 0.5
+          selector:
+            number: {min: 0.2, max: 1.5, step: 0.1, mode: slider}
+
+    behaviour_section:
+      name: Behaviour
+      icon: mdi:tune
+      collapsed: true
+      input:
+        quiet_enabled:
+          name: Quiet hours enabled
+          description: In quiet hours, info and warning arrive as silent pushes and nothing speaks. Critical ignores quiet hours.
+          default: true
+          selector:
+            boolean: {}
+        quiet_start:
+          name: Quiet hours start
+          default: "22:30:00"
+          selector:
+            time: {}
+        quiet_end:
+          name: Quiet hours end
+          default: "07:00:00"
+          selector:
+            time: {}
+        silent_mode_entity:
+          name: Silent mode toggle (optional)
+          description: An input_boolean. When on, everything except critical is only logged.
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: input_boolean
+        persistent_severities:
+          name: Also create an HA persistent notification for
+          default:
+            - critical
+          selector:
+            select:
+              multiple: true
+              options:
+                - label: Info
+                  value: info
+                - label: Warning
+                  value: warning
+                - label: Critical
+                  value: critical
+        log_to_logbook:
+          name: Write every notification to the logbook
+          default: true
+          selector:
+            boolean: {}
+        cooldown_helper:
+          name: Cooldown helper (optional)
+          description: An input_text helper (max length 255). Needed for the per-call 'cooldown' field. Leave empty to disable rate limiting.
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: input_text
+
+    confirm_section:
+      name: Confirm, snooze and escalation
+      icon: mdi:check-decagram
+      collapsed: true
+      input:
+        alarm_panel:
+          name: Alarm panel for the Disarm button
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: alarm_control_panel
+        alarm_code:
+          name: Alarm code (leave empty if Alarmo doesn't need one to disarm)
+          default: ""
+          selector:
+            text:
+              type: password
+        ios_auth_disarm:
+          name: iPhone must be unlocked to press Disarm
+          default: true
+          selector:
+            boolean: {}
+        android_disarm:
+          name: Show Disarm button on Android
+          description: Android can't require unlock for a button press.
+          default: true
+          selector:
+            boolean: {}
+        confirm_timeout:
+          name: Stop waiting for a reply after (minutes)
+          description: Used when a confirm is requested but no escalation is set.
+          default: 30
+          selector:
+            number: {min: 1, max: 240, unit_of_measurement: min}
+        snooze_minutes:
+          name: Snooze length (minutes)
+          default: 15
+          selector:
+            number: {min: 1, max: 240, unit_of_measurement: min}
+
+mode: parallel
+max: 25
+icon: mdi:bell-ring
+
+fields:
+  message:
+    name: Message
+    required: true
+    selector:
+      text:
+        multiline: true
+  title:
+    name: Title
+    description: Defaults to the channel name.
+    selector:
+      text: {}
+  severity:
+    name: Severity
+    required: true
+    default: info
+    selector:
+      select:
+        options:
+          - label: Info
+            value: info
+          - label: Warning
+            value: warning
+          - label: Critical
+            value: critical
+  channel:
+    name: Channel
+    required: true
+    default: house
+    selector:
+      select:
+        options:
+          - label: Security
+            value: security
+          - label: House
+            value: house
+          - label: Energy
+            value: energy
+          - label: System
+            value: system
+  confirm:
+    name: Confirm buttons
+    default: none
+    selector:
+      select:
+        options:
+          - label: None
+            value: none
+          - label: Acknowledge
+            value: acknowledge
+          - label: Acknowledge + snooze
+            value: snooze
+          - label: Acknowledge + disarm alarm
+            value: disarm
+  escalate_after:
+    name: Escalate if unanswered after (minutes)
+    description: 0 = never. Only used with confirm buttons.
+    default: 0
+    selector:
+      number: {min: 0, max: 120, unit_of_measurement: min}
+  escalate_to:
+    name: Escalate to
+    default: critical
+    selector:
+      select:
+        options:
+          - label: Resend as critical
+            value: critical
+          - label: Resend as critical to every phone
+            value: everyone
+  speak:
+    name: Speak on speakers
+    default: auto
+    selector:
+      select:
+        options:
+          - label: Auto (if speakers set for this severity)
+            value: auto
+          - label: Always
+            value: always
+          - label: Never
+            value: never
+  tag:
+    name: Tag
+    description: Same tag replaces the previous notification on phones.
+    selector:
+      text: {}
+  cooldown:
+    name: Cooldown (seconds)
+    description: Drop repeats of the same tag within this time. Needs a tag and the cooldown helper. Critical ignores it.
+    default: 0
+    selector:
+      number: {min: 0, max: 3600, unit_of_measurement: s}
+  image:
+    name: Image
+    description: e.g. /api/camera_proxy/camera.front_door
+    selector:
+      text: {}
+  link:
+    name: Open on tap
+    description: e.g. /lovelace/security or https://...
+    selector:
+      text: {}
+  target_phones:
+    name: Override phones
+    description: Ignore the blueprint lists and send only to these.
+    selector:
+      device:
+        multiple: true
+        filter:
+          - integration: mobile_app
+  internal:
+    name: Internal (used by the script itself)
+    advanced: true
+    selector:
+      object: {}
+
+sequence:
+  # ---------- Blueprint inputs ----------
+  - variables:
+      in_info_phones: !input info_phones
+      in_warning_phones: !input warning_phones
+      in_critical_phones: !input critical_phones
+      in_presence: !input presence_filter
+      in_security_phones: !input security_phones
+      in_house_phones: !input house_phones
+      in_energy_phones: !input energy_phones
+      in_system_phones: !input system_phones
+      in_method: !input speaker_method
+      in_tts_engine: !input tts_engine
+      in_info_spk: !input info_speakers
+      in_warning_spk: !input warning_speakers
+      in_critical_spk: !input critical_speakers
+      in_info_vol: !input info_volume
+      in_warning_vol: !input warning_volume
+      in_critical_vol: !input critical_volume
+      in_fallback_vol: !input fallback_volume
+      in_dnd_override: !input alexa_dnd_override
+      in_spw: !input seconds_per_word
+      in_quiet_enabled: !input quiet_enabled
+      in_quiet_start: !input quiet_start
+      in_quiet_end: !input quiet_end
+      in_silent_entity: !input silent_mode_entity
+      in_persistent: !input persistent_severities
+      in_log: !input log_to_logbook
+      in_cd_helper: !input cooldown_helper
+      in_alarm_panel: !input alarm_panel
+      in_alarm_code: !input alarm_code
+      in_ios_auth: !input ios_auth_disarm
+      in_android_disarm: !input android_disarm
+      in_confirm_timeout: !input confirm_timeout
+      in_snooze: !input snooze_minutes
+
+  # ---------- Call fields (fields have no runtime defaults, so set them here) ----------
+  - variables:
+      sev: "{{ severity | default('info', true) }}"
+      ch: "{{ channel | default('house', true) }}"
+      cf: "{{ confirm | default('none', true) }}"
+      esc_after: "{{ escalate_after | default(0, true) | int(0) }}"
+      esc_to: "{{ escalate_to | default('critical', true) }}"
+      spk_mode: "{{ speak | default('auto', true) }}"
+      msg: "{{ message | default('', true) }}"
+      ttl: "{{ title | default('', true) or (ch | title) }}"
+      img: "{{ image | default('', true) }}"
+      url: "{{ link | default('', true) }}"
+      cd: "{{ cooldown | default(0, true) | int(0) }}"
+      user_tag: "{{ (tag | default('', true)) | length > 0 }}"
+      tag_id: "{{ tag | default('', true) or ('cn_' ~ context.id) }}"
+      run_id: "{{ context.id }}"
+      int_cfg: "{{ internal | default({}, true) }}"
+      now_ts: "{{ as_timestamp(now()) | int }}"
+
+  # ---------- Internal: delayed start (snooze) ----------
+  - if:
+      - condition: template
+        value_template: "{{ int_cfg.get('delay', 0) | int(0) > 0 }}"
+    then:
+      - delay:
+          minutes: "{{ int_cfg.get('delay', 0) | int(0) }}"
+
+  # ---------- Internal: speak-only run (lets the main run listen for buttons straight away) ----------
+  - if:
+      - condition: template
+        value_template: "{{ int_cfg.get('mode', '') == 'speak' }}"
+    then:
+      - variables:
+          speakers: "{{ int_cfg.get('speakers', []) }}"
+          volume: "{{ int_cfg.get('volume', in_fallback_vol) }}"
+          saved: "{{ speakers | map('state_attr', 'volume_level') | list }}"
+          dnd_on: >-
+            {%- if int_cfg.get('critical', false) and in_dnd_override and in_method != 'tts_speak' -%}
+            {{ speakers | map('replace', 'media_player.', 'switch.') | map('regex_replace', '$', '_do_not_disturb_switch') | select('is_state', 'on') | list }}
+            {%- else -%}{{ [] }}{%- endif -%}
+      - if:
+          - condition: template
+            value_template: "{{ dnd_on | count > 0 }}"
+        then:
+          - action: switch.turn_off
+            continue_on_error: true
+            target:
+              entity_id: "{{ dnd_on }}"
+      - action: media_player.volume_set
+        continue_on_error: true
+        target:
+          entity_id: "{{ speakers }}"
+        data:
+          volume_level: "{{ volume }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ in_method == 'tts_speak' }}"
+            sequence:
+              - action: tts.speak
+                continue_on_error: true
+                target:
+                  entity_id: "{{ in_tts_engine }}"
+                data:
+                  media_player_entity_id: "{{ speakers }}"
+                  message: "{{ msg }}"
+        default:
+          - action: notify.alexa_media
+            continue_on_error: true
+            data:
+              title: "{{ ttl }}"
+              message: "{{ msg }}"
+              target: "{{ speakers }}"
+              data:
+                type: "{{ 'announce' if in_method == 'alexa_announce' else 'tts' }}"
+      - delay:
+          seconds: "{{ (3 + ((msg | string).split() | count) * (in_spw | float(0.5))) | round(0) | int }}"
+      - repeat:
+          for_each: "{{ range(speakers | count) | list }}"
+          sequence:
+            - action: media_player.volume_set
+              continue_on_error: true
+              target:
+                entity_id: "{{ speakers[repeat.item] }}"
+              data:
+                volume_level: "{{ saved[repeat.item] if saved[repeat.item] is number else in_fallback_vol }}"
+      - if:
+          - condition: template
+            value_template: "{{ dnd_on | count > 0 }}"
+        then:
+          - action: switch.turn_on
+            continue_on_error: true
+            target:
+              entity_id: "{{ dnd_on }}"
+      - stop: Spoken
+
+  # ---------- Mode check: silent mode ----------
+  - variables:
+      silent: "{{ sev != 'critical' and (in_silent_entity | default('', true) | length > 0) and is_state(in_silent_entity, 'on') }}"
+      quiet: >-
+        {%- set n = now().strftime('%H:%M:%S') -%}
+        {%- set s = in_quiet_start -%}
+        {%- set e = in_quiet_end -%}
+        {{ in_quiet_enabled and sev != 'critical' and ((s <= n < e) if s <= e else (n >= s or n < e)) }}
+  - if:
+      - condition: template
+        value_template: "{{ silent }}"
+    then:
+      - if:
+          - condition: template
+            value_template: "{{ in_log }}"
+        then:
+          - action: logbook.log
+            data:
+              name: Notifier
+              message: "[silenced {{ sev }}/{{ ch }}] {{ ttl }}: {{ msg }}"
+              entity_id: "{{ this.entity_id }}"
+      - variables:
+          result:
+            status: silenced
+            tag: "{{ tag_id }}"
+      - stop: Silent mode
+        response_variable: result
+
+  # ---------- Rate limit (per tag, opt-in per call) ----------
+  - variables:
+      cd_active: "{{ user_tag and cd > 0 and sev != 'critical' and (in_cd_helper | default('', true) | length > 0) }}"
+      cd_store: >-
+        {%- set raw = states(in_cd_helper) if (in_cd_helper | default('', true) | length > 0) else '' -%}
+        {{ (raw | from_json) if raw.startswith('{') else {} }}
+      cd_hit: "{{ cd_active and tag_id in cd_store and (now_ts - (cd_store[tag_id] | int(0))) < cd }}"
+  - if:
+      - condition: template
+        value_template: "{{ cd_hit }}"
+    then:
+      - variables:
+          result:
+            status: cooldown
+            tag: "{{ tag_id }}"
+      - stop: In cooldown
+        response_variable: result
+  - if:
+      - condition: template
+        value_template: "{{ cd_active }}"
+    then:
+      - action: input_text.set_value
+        continue_on_error: true
+        target:
+          entity_id: "{{ in_cd_helper }}"
+        data:
+          value: >-
+            {%- set ns = namespace(d={}) -%}
+            {%- for k, v in (cd_store.items() | list | sort(attribute='1', reverse=true))[:6] if (now_ts - (v | int(0))) < 3600 and k != tag_id -%}
+            {%- set ns.d = dict(ns.d, **{k: v}) -%}
+            {%- endfor -%}
+            {%- set ns.d = dict(ns.d, **{tag_id: now_ts}) -%}
+            {{ ns.d | to_json }}
+
+  # ---------- Work out who gets it ----------
+  - variables:
+      base_phones: >-
+        {%- set t = target_phones | default([], true) -%}
+        {%- set t = [t] if t is string else t -%}
+        {%- set chmap = {'security': in_security_phones, 'house': in_house_phones, 'energy': in_energy_phones, 'system': in_system_phones} -%}
+        {%- set sevmap = {'info': in_info_phones, 'warning': in_warning_phones, 'critical': in_critical_phones} -%}
+        {%- set p = t if t | count > 0 else (chmap.get(ch, []) or sevmap.get(sev, [])) -%}
+        {%- if sev == 'critical' -%}{%- set p = (p + in_critical_phones) | unique | list -%}{%- endif -%}
+        {{ p }}
+      phones: >-
+        {%- set ns = namespace(home=[]) -%}
+        {%- if sev in in_presence and base_phones | count > 0 -%}
+          {%- for d in base_phones -%}
+            {%- set trk = device_entities(d) | select('match', 'device_tracker\.') | first | default('') -%}
+            {%- if trk and is_state(trk, 'home') -%}{%- set ns.home = ns.home + [d] -%}{%- endif -%}
+          {%- endfor -%}
+          {{ ns.home if ns.home | count > 0 else base_phones }}
+        {%- else -%}{{ base_phones }}{%- endif -%}
+      everyone: "{{ (in_info_phones + in_warning_phones + in_critical_phones + in_security_phones + in_house_phones + in_energy_phones + in_system_phones) | unique | list }}"
+      level: "{{ 'quiet' if quiet else sev }}"
+      act_ack: "CN_ACK_{{ run_id }}"
+      act_snooze: "CN_SNOOZE_{{ run_id }}"
+      act_disarm: "CN_DISARM_{{ run_id }}"
+      speakers: >-
+        {%- set m = {'info': in_info_spk, 'warning': in_warning_spk, 'critical': in_critical_spk} -%}
+        {%- set s = m.get(sev, []) -%}
+        {%- if spk_mode == 'never' or (quiet and spk_mode == 'auto') -%}{{ [] }}
+        {%- elif spk_mode == 'always' and s | count == 0 -%}{{ in_critical_spk or in_warning_spk or in_info_spk }}
+        {%- else -%}{{ s }}{%- endif -%}
+      volume: "{{ {'info': in_info_vol, 'warning': in_warning_vol, 'critical': in_critical_vol}[sev] }}"
+
+  # ---------- Send to phones ----------
+  - repeat:
+      for_each: "{{ phones }}"
+      sequence:
+        - variables:
+            payload: >-
+              {%- set ios = device_attr(repeat.item, 'manufacturer') == 'Apple' -%}
+              {%- set d = {'tag': tag_id, 'group': ch} -%}
+              {%- if img -%}{%- set d = dict(d, image=img) -%}{%- endif -%}
+              {%- if url -%}{%- set d = dict(d, url=url, clickAction=url) -%}{%- endif -%}
+              {%- set acts = [] -%}
+              {%- if cf in ['acknowledge', 'snooze', 'disarm'] -%}{%- set acts = acts + [{'action': act_ack, 'title': 'Acknowledge'}] -%}{%- endif -%}
+              {%- if cf == 'snooze' -%}{%- set acts = acts + [{'action': act_snooze, 'title': 'Snooze ' ~ (in_snooze | int) ~ ' min'}] -%}{%- endif -%}
+              {%- if cf == 'disarm' and (in_alarm_panel | default('', true) | length > 0) and (ios or in_android_disarm) -%}
+                {%- set a = {'action': act_disarm, 'title': 'Disarm alarm', 'destructive': true} -%}
+                {%- if ios and in_ios_auth -%}{%- set a = dict(a, authenticationRequired=true) -%}{%- endif -%}
+                {%- set acts = acts + [a] -%}
+              {%- endif -%}
+              {%- if acts | count > 0 -%}{%- set d = dict(d, actions=acts) -%}{%- endif -%}
+              {%- if ios -%}
+                {%- set il = {'critical': 'critical', 'warning': 'time-sensitive', 'info': 'active', 'quiet': 'passive'}[level] -%}
+                {%- set push = {'interruption-level': il} -%}
+                {%- if level == 'critical' -%}{%- set push = dict(push, sound={'name': 'default', 'critical': 1, 'volume': 1.0}) -%}{%- endif -%}
+                {%- set d = dict(d, push=push) -%}
+              {%- else -%}
+                {%- set chan = {'critical': 'alarm_stream', 'warning': 'Warnings', 'info': 'Info', 'quiet': 'Quiet'}[level] -%}
+                {%- set imp = {'critical': 'high', 'warning': 'high', 'info': 'default', 'quiet': 'low'}[level] -%}
+                {%- set d = dict(d, channel=chan, importance=imp, ttl=0, priority=('high' if level in ['critical', 'warning'] else 'normal')) -%}
+              {%- endif -%}
+              {{ d }}
+        - action: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
+          continue_on_error: true
+          data:
+            title: "{{ ttl }}"
+            message: "{{ msg }}"
+            data: "{{ payload }}"
+
+  # ---------- Persistent notification ----------
+  - if:
+      - condition: template
+        value_template: "{{ sev in in_persistent }}"
+    then:
+      - action: persistent_notification.create
+        data:
+          notification_id: "{{ tag_id }}"
+          title: "{{ ttl }}"
+          message: "{{ msg }}"
+
+  # ---------- Speakers (separate run so buttons work immediately) ----------
+  - if:
+      - condition: template
+        value_template: "{{ speakers | count > 0 }}"
+    then:
+      - action: script.turn_on
+        target:
+          entity_id: "{{ this.entity_id }}"
+        data:
+          variables:
+            message: "{{ msg }}"
+            title: "{{ ttl }}"
+            severity: "{{ sev }}"
+            channel: "{{ ch }}"
+            internal:
+              mode: speak
+              speakers: "{{ speakers }}"
+              volume: "{{ volume }}"
+              critical: "{{ sev == 'critical' }}"
+
+  # ---------- Logbook audit ----------
+  - if:
+      - condition: template
+        value_template: "{{ in_log }}"
+    then:
+      - action: logbook.log
+        data:
+          name: Notifier
+          entity_id: "{{ this.entity_id }}"
+          message: >-
+            [{{ level }}/{{ ch }}] {{ ttl }}: {{ msg }} ->
+            {%- for d in phones %} {{ device_attr(d, 'name') }}{{ ',' if not loop.last }}{%- else %} no phones{%- endfor -%}
+            {{ ' + ' ~ (speakers | count) ~ ' speaker(s)' if speakers | count > 0 else '' }}
+
+  # ---------- No confirm requested: done ----------
+  - if:
+      - condition: template
+        value_template: "{{ cf == 'none' or phones | count == 0 }}"
+    then:
+      - variables:
+          result:
+            status: sent
+            tag: "{{ tag_id }}"
+            phones: "{{ phones | count }}"
+      - stop: Sent
+        response_variable: result
+
+  # ---------- Wait for a button press ----------
+  - wait_for_trigger:
+      - trigger: event
+        event_type: mobile_app_notification_action
+        event_data:
+          action: "{{ act_ack }}"
+      - trigger: event
+        event_type: mobile_app_notification_action
+        event_data:
+          action: "{{ act_snooze }}"
+      - trigger: event
+        event_type: mobile_app_notification_action
+        event_data:
+          action: "{{ act_disarm }}"
+    timeout:
+      minutes: "{{ esc_after if esc_after > 0 else (in_confirm_timeout | int(30)) }}"
+    continue_on_timeout: true
+
+  - variables:
+      answer: "{{ 'timeout' if wait.trigger is none else (wait.trigger.event.data.action.split('_')[1] | lower) }}"
+      by: >-
+        {%- if wait.trigger is none -%}nobody{%- else -%}
+        {%- set uid = wait.trigger.event.context.user_id -%}
+        {{ states.person | selectattr('attributes.user_id', 'eq', uid) | map(attribute='name') | first | default('someone') }}
+        {%- endif -%}
+
+  # Clear the alert from every phone once someone has answered
+  - if:
+      - condition: template
+        value_template: "{{ answer != 'timeout' }}"
+    then:
+      - repeat:
+          for_each: "{{ phones }}"
+          sequence:
+            - action: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
+              continue_on_error: true
+              data:
+                message: clear_notification
+                data:
+                  tag: "{{ tag_id }}"
+      - action: persistent_notification.dismiss
+        continue_on_error: true
+        data:
+          notification_id: "{{ tag_id }}"
+      - if:
+          - condition: template
+            value_template: "{{ in_log }}"
+        then:
+          - action: logbook.log
+            data:
+              name: Notifier
+              entity_id: "{{ this.entity_id }}"
+              message: "{{ ttl }}: {{ answer }} by {{ by }}"
+
+  - choose:
+      # Disarm
+      - conditions:
+          - condition: template
+            value_template: "{{ answer == 'disarm' and (in_alarm_panel | default('', true) | length > 0) }}"
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ in_alarm_code | default('', true) | length > 0 }}"
+            then:
+              - action: alarm_control_panel.alarm_disarm
+                target:
+                  entity_id: "{{ in_alarm_panel }}"
+                data:
+                  code: "{{ in_alarm_code }}"
+            else:
+              - action: alarm_control_panel.alarm_disarm
+                target:
+                  entity_id: "{{ in_alarm_panel }}"
+      # Snooze: start a new run that waits, then resends
+      - conditions:
+          - condition: template
+            value_template: "{{ answer == 'snooze' }}"
+        sequence:
+          - action: script.turn_on
+            target:
+              entity_id: "{{ this.entity_id }}"
+            data:
+              variables:
+                message: "{{ msg }}"
+                title: "{{ ttl }}"
+                severity: "{{ sev }}"
+                channel: "{{ ch }}"
+                confirm: "{{ cf }}"
+                escalate_after: "{{ esc_after }}"
+                escalate_to: "{{ esc_to }}"
+                speak: "{{ spk_mode }}"
+                tag: "{{ tag_id }}"
+                image: "{{ img }}"
+                link: "{{ url }}"
+                target_phones: "{{ target_phones | default([], true) }}"
+                internal:
+                  delay: "{{ in_snooze | int(15) }}"
+      # Unanswered: escalate
+      - conditions:
+          - condition: template
+            value_template: "{{ answer == 'timeout' and esc_after > 0 }}"
+        sequence:
+          - action: script.turn_on
+            target:
+              entity_id: "{{ this.entity_id }}"
+            data:
+              variables:
+                message: "{{ msg }}"
+                title: "Unanswered: {{ ttl }}"
+                severity: critical
+                channel: "{{ ch }}"
+                confirm: "{{ 'acknowledge' if cf == 'snooze' else cf }}"
+                escalate_after: 0
+                speak: always
+                tag: "{{ tag_id }}"
+                image: "{{ img }}"
+                link: "{{ url }}"
+                target_phones: "{{ everyone if esc_to == 'everyone' else [] }}"
+
+  - variables:
+      result:
+        status: "{{ 'escalated' if (answer == 'timeout' and esc_after > 0) else answer }}"
+        by: "{{ by }}"
+        tag: "{{ tag_id }}"
+  - stop: Done
+    response_variable: result
